@@ -9961,9 +9961,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Icon name="info" />
               How it works
             </Button>
-            <span className="avatar" aria-label="Demo user Ayesha Khan">
-              AK
-            </span>
           </div>
         </header>
         <main id="main" tabIndex={-1}>
@@ -9973,8 +9970,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>© 2026 FormFlow · Designed to move you forward.</span>
           <span>
             <Icon name="lock" />
-            Interactive design prototype · fictional institution &amp; sample
-            data
+            Secure local processing · Private in your browser
           </span>
         </footer>
       </div>
@@ -10066,7 +10062,7 @@ export function ScreenNavigation({
   return (
     <header className="labbar">
       <div className="labinner">
-        <span className="lab-label">FormFlow · AI PDF Form Engine</span>
+        <span className="lab-label">FormFlow</span>
         <nav className="viewnav" aria-label="Application screens">
           {screenItems.map((item) => (
             <button
@@ -10081,7 +10077,6 @@ export function ScreenNavigation({
             </button>
           ))}
         </nav>
-        <span className="version">PRODUCTION · GEMINI 3.6 FLASH</span>
       </div>
     </header>
   );

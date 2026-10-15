@@ -12,7 +12,7 @@ export function ScreenNavigation({
   return (
     <header className="labbar">
       <div className="labinner">
-        <span className="lab-label">FormFlow · AI PDF Form Engine</span>
+        <span className="lab-label">FormFlow</span>
         <nav className="viewnav" aria-label="Application screens">
           {screenItems.map((item) => (
             <button
@@ -27,7 +27,6 @@ export function ScreenNavigation({
             </button>
           ))}
         </nav>
-        <span className="version">PRODUCTION · GEMINI 3.6 FLASH</span>
       </div>
     </header>
   );

@@ -60,9 +60,6 @@ export function AppShell({ children }: { children: ReactNode }) {
               <Icon name="info" />
               How it works
             </Button>
-            <span className="avatar" aria-label="Demo user Ayesha Khan">
-              AK
-            </span>
           </div>
         </header>
         <main id="main" tabIndex={-1}>
@@ -72,8 +69,7 @@ export function AppShell({ children }: { children: ReactNode }) {
           <span>© 2026 FormFlow · Designed to move you forward.</span>
           <span>
             <Icon name="lock" />
-            Interactive design prototype · fictional institution &amp; sample
-            data
+            Secure local processing · Private in your browser
           </span>
         </footer>
       </div>
