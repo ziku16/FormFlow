@@ -1,0 +1,78 @@
+.modal {
+  border: 1px solid var(--neutral-200);
+  border-radius: 18px;
+  padding: 30px;
+  max-width: 490px;
+  width: calc(100% - 36px);
+  color: var(--neutral-900);
+  background: var(--neutral-0);
+  box-shadow: var(--shadow-lg);
+}
+.modal::backdrop {
+  background: rgb(38 53 43 / 30%);
+}
+.modal-heading {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 20px;
+}
+.modal-heading h2 {
+  font-size: 24px;
+}
+.modal-content {
+  margin-top: 24px;
+}
+.viewnav button:disabled {
+  cursor: not-allowed;
+}
+.choice:has(input:disabled) {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.field input:not([type="checkbox"]):not([type="radio"]):disabled,
+.field select:disabled {
+  background: var(--neutral-100);
+}
+.field textarea {
+  font: inherit;
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid #d6dcd2;
+  border-radius: 7px;
+  background: white;
+  color: var(--neutral-900);
+  min-height: 100px;
+  resize: vertical;
+}
+.field textarea:focus-visible {
+  outline: 3px solid #bb8535;
+  outline-offset: 2px;
+  border-color: var(--primary-500);
+}
+.field textarea[aria-invalid="true"] {
+  border-color: var(--error);
+  background: #fffafa;
+}
+.field textarea:disabled {
+  background: var(--neutral-100);
+}
+.pill.info {
+  background: var(--info-bg);
+  color: var(--info);
+}
+.notice p {
+  font-size: inherit;
+}
+.form-section {
+  border: 0;
+  padding: 0;
+  margin: 0;
+}
+
+.sample {
+  text-decoration: none;
+}
+.file-name {
+  overflow-wrap: anywhere;
+}
