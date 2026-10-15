@@ -103,11 +103,11 @@ export function AppShell({ children }: { children: ReactNode }) {
             exporting the completed form.
           </li>
         </ol>
-        <Notice title="What you can try now">
-          Select a PDF to check its file type, size, and signature, or open the
-          prepared university sample. Your file stays in this tab. Live PDF
-          field extraction, AI analysis, and guided form entry are not enabled
-          yet.
+        <Notice>
+          This standalone design has no AI service. Uploaded files are checked
+          for size, file signature, and fillable AcroForm fields; the guided
+          flow uses the fictional Northbridge sample or your uploaded fillable
+          PDF. Answers and document progress are stored locally in your browser.
         </Notice>
       </Modal>
     </ToastProvider>

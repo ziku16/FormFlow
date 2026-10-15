@@ -39,14 +39,14 @@ const languages = {
   ".json": "json",
   ".md": "markdown",
 };
-let output = "# FormFlow — complete Phase 2 source\n\n";
+let output = "# FormFlow — complete Phase 3 source\n\n";
 output +=
-  "Every Phase 2 file is reproduced in full below. The unchanged design reference, installed dependencies, build output, and this generated document are excluded.\n\n";
+  "Every Phase 3 file is reproduced in full below. The unchanged design reference, installed dependencies, build output, and this generated document are excluded.\n\n";
 output += `## File inventory (${files.length} files)\n\n`;
 output += files.map((file) => `- \`${file}\``).join("\n") + "\n\n";
 for (const file of files) {
   const content = await readFile(file, "utf8");
   output += `## ${file}\n\n\`\`\`\`${languages[path.extname(file)] ?? "text"}\n${content.trimEnd()}\n\`\`\`\`\n\n`;
 }
-await writeFile("PHASE_2_SOURCE.md", output);
-console.log(`Exported ${files.length} complete files to PHASE_2_SOURCE.md.`);
+await writeFile("PHASE_3_SOURCE.md", output);
+console.log(`Exported ${files.length} complete files to PHASE_3_SOURCE.md.`);

@@ -7,10 +7,10 @@ export const screenItems = [
   },
   { id: "upload", label: "01 Upload", available: true, href: "/" },
   { id: "analysis", label: "02 Analysis", available: true, href: "/analysis" },
-  { id: "fill", label: "03 Fill form", available: false, href: null },
-  { id: "review", label: "04 Review", available: false, href: null },
-  { id: "download", label: "05 Download", available: false, href: null },
-  { id: "states", label: "States & feedback", available: false, href: null },
+  { id: "fill", label: "03 Fill form", available: true, href: "/fill" },
+  { id: "review", label: "04 Review", available: true, href: "/review" },
+  { id: "download", label: "05 Download", available: true, href: "/download" },
+  { id: "states", label: "States & feedback", available: true, href: "/states" },
 ] as const;
 
 export type ScreenId = (typeof screenItems)[number]["id"];

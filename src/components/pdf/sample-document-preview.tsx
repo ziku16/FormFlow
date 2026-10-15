@@ -2,10 +2,25 @@
 
 import { useState } from "react";
 import { Badge, Icon, IconButton } from "@/components/ui";
-import type { SampleForm } from "@/data/sample-form";
+import { sampleForm, type SampleForm } from "@/data/sample-form";
+import { cn } from "@/lib/cn";
+import { displayValue } from "@/features/form/form-context";
 
-export function SampleDocumentPreview({ form }: { form: SampleForm }) {
+export type SampleDocumentPreviewProps = {
+  form?: SampleForm;
+  filled?: boolean;
+  answers?: Record<string, string | boolean>;
+  highlightedFieldId?: string | null;
+};
+
+export function SampleDocumentPreview({
+  form = sampleForm,
+  filled = false,
+  answers = {},
+  highlightedFieldId = null,
+}: SampleDocumentPreviewProps) {
   const [enlarged, setEnlarged] = useState(false);
+
   return (
     <div className="preview">
       <div className="preview-toolbar">
@@ -49,32 +64,62 @@ export function SampleDocumentPreview({ form }: { form: SampleForm }) {
               <h4>
                 {String(index + 1).padStart(2, "0")} &nbsp; {section.title}
               </h4>
-              {section.id === "declarations" ? (
+              {section.id === "declarations" || section.id === "section-3" ? (
                 <div style={{ lineHeight: 1.8, fontSize: 8 }}>
-                  {section.fields.map((field, fieldIndex) => (
-                    <p key={field.id} style={{ marginTop: fieldIndex ? 6 : 0 }}>
-                      <span aria-hidden="true">☐ </span>
-                      {field.label}
-                      {field.required ? " *" : ""}
-                    </p>
-                  ))}
+                  {section.fields.map((field, fieldIndex) => {
+                    const isChecked = Boolean(answers[field.id]);
+                    const isHighlighted = highlightedFieldId === field.id;
+                    return (
+                      <p
+                        key={field.id}
+                        data-pdf-field={field.id}
+                        style={{
+                          marginTop: fieldIndex ? 6 : 0,
+                          backgroundColor: isHighlighted
+                            ? "var(--secondary-50)"
+                            : undefined,
+                          borderRadius: 3,
+                          padding: isHighlighted ? "1px 4px" : undefined,
+                        }}
+                      >
+                        <span aria-hidden="true">
+                          {filled && isChecked ? "☑ " : "☐ "}
+                        </span>
+                        {field.label}
+                        {field.required ? " *" : ""}
+                      </p>
+                    );
+                  })}
                 </div>
               ) : (
                 <div className="pdf-grid">
-                  {section.fields.map((field) => (
-                    <div className="pdf-field" key={field.id}>
-                      <span>
-                        {field.label}
-                        {field.required ? " *" : ""}
-                      </span>
+                  {section.fields.map((field) => {
+                    const val = answers[field.id];
+                    const isHighlighted = highlightedFieldId === field.id;
+                    return (
                       <div
-                        className="pdf-value"
-                        aria-label={`${field.label}: blank`}
+                        className={cn(
+                          "pdf-field",
+                          isHighlighted && "highlight",
+                        )}
+                        data-pdf-field={field.id}
+                        key={field.id}
                       >
-                        &nbsp;
+                        <span>
+                          {field.label}
+                          {field.required ? " *" : ""}
+                        </span>
+                        <div
+                          className="pdf-value"
+                          aria-label={`${field.label}: ${filled && val ? displayValue(val) : "blank"}`}
+                        >
+                          {filled && val !== undefined && val !== ""
+                            ? displayValue(val)
+                            : "\u00A0"}
+                        </div>
                       </div>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>

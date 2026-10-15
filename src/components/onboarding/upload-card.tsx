@@ -2,16 +2,28 @@
 
 import { useRef, useState, type DragEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Icon, Notice } from "@/components/ui";
 import { useIntake } from "@/features/intake/intake-provider";
 import { formatFileSize } from "@/features/intake/validate-file";
+import { useForm } from "@/features/form/form-context";
+import { parsePdfFile } from "@/features/pdf/pdf-engine";
 import { cn } from "@/lib/cn";
 
 export function UploadCard() {
+  const router = useRouter();
   const inputRef = useRef<HTMLInputElement>(null);
   const dragDepth = useRef(0);
   const [dragging, setDragging] = useState(false);
+  const [parsing, setParsing] = useState(false);
+  const [parseError, setParseError] = useState<{
+    title: string;
+    message: string;
+    isNoFields?: boolean;
+  } | null>(null);
+
   const { state, selectFiles, clearSelection } = useIntake();
+  const { setUploadedPdf, switchToSample } = useForm();
 
   function enterDropzone(event: DragEvent<HTMLDivElement>) {
     event.preventDefault();
@@ -30,7 +42,39 @@ export function UploadCard() {
     event.preventDefault();
     dragDepth.current = 0;
     setDragging(false);
+    setParseError(null);
     void selectFiles(Array.from(event.dataTransfer.files));
+  }
+
+  async function handleAnalyzeSelected() {
+    if (state.status !== "selected") return;
+    setParsing(true);
+    setParseError(null);
+    try {
+      const result = await parsePdfFile(state.file);
+      if (result.ok) {
+        setUploadedPdf(result);
+        router.push("/analysis");
+      } else if (result.error === "no-fields") {
+        setParseError({
+          title: "This PDF doesn’t have fillable fields.",
+          message: result.message,
+          isNoFields: true,
+        });
+      } else if (result.error === "password-protected") {
+        setParseError({
+          title: "This document is password-protected.",
+          message: result.message,
+        });
+      } else {
+        setParseError({
+          title: "We couldn’t read this file.",
+          message: result.message,
+        });
+      }
+    } finally {
+      setParsing(false);
+    }
   }
 
   return (
@@ -48,7 +92,7 @@ export function UploadCard() {
           event.dataTransfer.dropEffect = "copy";
         }}
         onDrop={dropFiles}
-        aria-busy={state.status === "validating"}
+        aria-busy={state.status === "validating" || parsing}
       >
         <div className="icon-tile">
           <Icon name="upload" />
@@ -58,7 +102,10 @@ export function UploadCard() {
         </h3>
         <p className="small muted">A small upload. A much simpler process.</p>
         <Button
-          onClick={() => inputRef.current?.click()}
+          onClick={() => {
+            setParseError(null);
+            inputRef.current?.click();
+          }}
           aria-describedby="upload-requirements"
         >
           <Icon name="upload" />
@@ -73,6 +120,7 @@ export function UploadCard() {
           onChange={(event) => {
             const files = Array.from(event.target.files ?? []);
             event.target.value = "";
+            setParseError(null);
             if (files.length) void selectFiles(files);
           }}
         />
@@ -80,6 +128,7 @@ export function UploadCard() {
           Fillable PDF only · Up to 10 MB
         </p>
       </div>
+
       {state.status === "validating" && (
         <Notice role="status" style={{ marginTop: 12 }}>
           <span className="file-name">Checking {state.name}…</span>
@@ -88,6 +137,7 @@ export function UploadCard() {
           </Button>
         </Notice>
       )}
+
       {state.status === "error" && (
         <Notice
           tone="error"
@@ -106,33 +156,94 @@ export function UploadCard() {
           </Button>
         </Notice>
       )}
-      {state.status === "selected" && (
+
+      {parseError && (
+        <Notice
+          tone="error"
+          role="alert"
+          title={parseError.title}
+          style={{ marginTop: 12 }}
+        >
+          <p className="file-name">{parseError.message}</p>
+          <div style={{ display: "flex", gap: 8, marginTop: 10 }}>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                setParseError(null);
+                inputRef.current?.click();
+              }}
+            >
+              Choose another PDF
+            </Button>
+            {parseError.isNoFields && (
+              <Button
+                variant="secondary"
+                size="sm"
+                onClick={() => {
+                  switchToSample();
+                  router.push("/analysis");
+                }}
+              >
+                Try the sample
+              </Button>
+            )}
+          </div>
+        </Notice>
+      )}
+
+      {state.status === "selected" && !parseError && (
         <Notice
           role="status"
           title="Your PDF is selected."
           style={{ marginTop: 12 }}
         >
           <p className="file-name">
-            <strong>{state.file.name}</strong>
-            {formatFileSize(state.file.size)} · Kept in this tab
+            <strong>{state.file.name}</strong>{" "}
+            ({formatFileSize(state.file.size)}) · Kept in this tab
           </p>
           <p style={{ marginTop: 8 }}>
-            The file type, size, and PDF signature passed our checks. Reading
-            its fields is not enabled yet. Try the sample below to explore the
-            onboarding experience.
+            The file type, size, and PDF signature passed our checks. Ready to
+            read interactive fields and begin the guided form.
           </p>
-          <Button
-            variant="ghost"
-            size="sm"
-            onClick={clearSelection}
-            style={{ marginTop: 8 }}
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              gap: 8,
+              marginTop: 10,
+              flexWrap: "wrap",
+            }}
           >
-            Remove selected file
-          </Button>
+            <Button
+              variant="primary"
+              size="sm"
+              loading={parsing}
+              onClick={handleAnalyzeSelected}
+            >
+              <Icon name="spark" />
+              Analyze this PDF
+            </Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={() => {
+                clearSelection();
+                setParseError(null);
+              }}
+            >
+              Remove file
+            </Button>
+          </div>
         </Notice>
       )}
+
       <div className="divider">JUST EXPLORING?</div>
-      <Link className="sample" href="/analysis">
+      <Link
+        className="sample"
+        href="/analysis"
+        onClick={() => switchToSample()}
+      >
         <span className="file-icon">
           <Icon name="file" />
         </span>

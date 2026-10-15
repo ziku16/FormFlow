@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { AppShell } from "@/components/layout/app-shell";
 import { IntakeProvider } from "@/features/intake/intake-provider";
+import { FormProvider } from "@/features/form/form-context";
 import type { ReactNode } from "react";
 import "./globals.css";
 import "@/styles/design.css";
@@ -29,7 +30,9 @@ export default function RootLayout({ children }: { children: ReactNode }) {
       </head>
       <body>
         <IntakeProvider>
-          <AppShell>{children}</AppShell>
+          <FormProvider>
+            <AppShell>{children}</AppShell>
+          </FormProvider>
         </IntakeProvider>
       </body>
     </html>

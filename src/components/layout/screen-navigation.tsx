@@ -20,11 +20,7 @@ export function ScreenNavigation({
               type="button"
               aria-current={current === item.id ? "page" : undefined}
               disabled={!item.available}
-              title={
-                item.available
-                  ? item.label
-                  : `${item.label} is available in Phase 3`
-              }
+              title={item.label}
               onClick={() => onNavigate(item.id)}
             >
               {item.label}
