@@ -1,10 +1,4 @@
 export const screenItems = [
-  {
-    id: "system",
-    label: "Design system",
-    available: true,
-    href: "/design-system",
-  },
   { id: "upload", label: "01 Upload", available: true, href: "/" },
   { id: "analysis", label: "02 Analysis", available: true, href: "/analysis" },
   { id: "fill", label: "03 Fill form", available: true, href: "/fill" },

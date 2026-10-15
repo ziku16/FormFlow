@@ -15,8 +15,10 @@ import { PageHeading } from "@/components/layout/page-heading";
 import { Stepper } from "@/components/layout/stepper";
 import { SampleDocumentPreview } from "@/components/pdf/sample-document-preview";
 import { useForm } from "@/features/form/form-context";
+import { useIsMounted } from "@/lib/use-mounted";
 
 export function AnalysisScreen() {
+  const isMounted = useIsMounted();
   const { activeForm, mode } = useForm();
 
   const fieldCount = activeForm.sections.reduce(
@@ -38,6 +40,19 @@ export function AnalysisScreen() {
       description: "Plain-language explanations alongside the original PDF.",
     },
   ];
+
+  if (!isMounted) {
+    return (
+      <section
+        id="view-analysis"
+        className="view"
+        aria-labelledby="analysis-heading"
+      >
+        <Stepper current={1} />
+        <div className="workspace" style={{ minHeight: 600 }} />
+      </section>
+    );
+  }
 
   return (
     <section
@@ -67,7 +82,9 @@ export function AnalysisScreen() {
             <span className="eyebrow">Form intelligence</span>
             <h2>A little structure goes a long way.</h2>
             <p>
-              {activeForm.title} · {activeForm.academicYear} entry
+              {mode === "uploaded"
+                ? `${activeForm.title} · ${activeForm.pageCount} ${activeForm.pageCount === 1 ? "page" : "pages"} fillable document`
+                : `${activeForm.title} · ${activeForm.academicYear} entry`}
             </p>
           </CardHeader>
           <CardBody>
@@ -106,10 +123,16 @@ export function AnalysisScreen() {
                 <span>to complete</span>
               </div>
             </div>
-            <Notice tone="warning" title="A suggestion, not a new requirement">
-              “Student ID” is interpreted as optional for new applicants.
-              Confirm the institution’s instructions before submitting.
-            </Notice>
+            {mode === "uploaded" ? (
+              <Notice tone="success" title="Interactive form fields mapped">
+                {fieldCount} interactive {fieldCount === 1 ? "field has" : "fields have"} been mapped directly to the original PDF. Your answers will fill directly into this document when exported.
+              </Notice>
+            ) : (
+              <Notice tone="warning" title="A suggestion, not a new requirement">
+                “Student ID” is interpreted as optional for new applicants.
+                Confirm the institution’s instructions before submitting.
+              </Notice>
+            )}
             <p className="small muted" style={{ marginTop: 16 }}>
               AI improves the wording; the PDF’s field names and options stay
               intact. This preview uses {mode === "uploaded" ? "your uploaded document" : "a prepared sample analysis"}.

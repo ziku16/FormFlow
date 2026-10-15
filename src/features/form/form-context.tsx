@@ -103,16 +103,48 @@ export function FormProvider({ children }: { children: ReactNode }) {
       return "sample";
     }
   });
-  const [uploadedPdf, setUploadedPdf] = useState<
+  const [uploadedPdf, setUploadedPdfState] = useState<
     (ParsedPdfResult & { ok: true }) | null
   >(null);
+
+  const setUploadedPdf = useCallback(
+    (pdf: (ParsedPdfResult & { ok: true }) | null) => {
+      setUploadedPdfState(pdf);
+      if (pdf) {
+        setMode("uploaded");
+        try {
+          localStorage.setItem(STORAGE_MODE_KEY, "uploaded");
+          localStorage.setItem(STORAGE_SECTION_KEY, "0");
+        } catch {
+          // Safe fallback
+        }
+        setActiveSectionState(0);
+        const initialAnswers: Record<string, string | boolean> = {};
+        for (const section of pdf.formSchema.sections) {
+          for (const field of section.fields) {
+            initialAnswers[field.id] = field.type === "checkbox" ? false : "";
+          }
+        }
+        setAnswersState(initialAnswers);
+        try {
+          localStorage.setItem(
+            STORAGE_ANSWERS_KEY,
+            JSON.stringify(initialAnswers),
+          );
+        } catch {
+          // Safe fallback
+        }
+      }
+    },
+    [],
+  );
   const [highlightedField, setHighlightedField] = useState<string | null>(null);
   const [useOriginalLabels, setUseOriginalLabels] = useState(false);
   const [validationErrors, setValidationErrors] = useState<
     Record<string, string>
   >({});
   const [downloadStatus, setDownloadStatus] = useState(
-    "No application has been submitted.",
+    "Ready to export your completed PDF.",
   );
 
   const setAnswer = useCallback((fieldId: string, value: string | boolean) => {
@@ -164,7 +196,7 @@ export function FormProvider({ children }: { children: ReactNode }) {
     } catch {
       // Safe fallback
     }
-  }, []);
+  }, [setUploadedPdf]);
 
   const resetToDefaults = useCallback(() => {
     setAnswersState(defaultSampleAnswers);
@@ -287,7 +319,7 @@ export function FormProvider({ children }: { children: ReactNode }) {
 
   const generatePdfDownload = useCallback(async () => {
     setDownloadStatus(
-      "Sample download started. Your application has not been submitted.",
+      "Your completed PDF has been generated and downloaded.",
     );
     if (mode === "uploaded" && uploadedPdf?.buffer) {
       const blob = await fillUploadedPdf(uploadedPdf.buffer, answers);
@@ -304,7 +336,7 @@ export function FormProvider({ children }: { children: ReactNode }) {
         .map((f) => [f.id, f.label]),
     );
     const blob = createDemoPdfBlob(answers, fieldLabelsMap);
-    const filename = "northbridge_application_demo.pdf";
+    const filename = activeForm.filename.replace(/\.pdf$/i, "_completed.pdf");
     return { blob, filename };
   }, [mode, uploadedPdf, answers, activeForm]);
 
@@ -348,6 +380,7 @@ export function FormProvider({ children }: { children: ReactNode }) {
       setActiveSection,
       setHighlightedField,
       setUseOriginalLabels,
+      setUploadedPdf,
       switchToSample,
       validateSection,
       validateAll,

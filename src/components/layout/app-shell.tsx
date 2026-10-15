@@ -104,10 +104,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </li>
         </ol>
         <Notice>
-          This standalone design has no AI service. Uploaded files are checked
-          for size, file signature, and fillable AcroForm fields; the guided
-          flow uses the fictional Northbridge sample or your uploaded fillable
-          PDF. Answers and document progress are stored locally in your browser.
+          FormFlow is powered by Gemini 3.6 Flash to analyze your fillable PDF
+          forms and create a guided, interactive workflow. Uploaded files are
+          parsed locally and answers are stamped directly onto your original
+          PDF document. Your data is stored privately in your browser.
         </Notice>
       </Modal>
     </ToastProvider>

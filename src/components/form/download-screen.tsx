@@ -5,8 +5,10 @@ import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Icon, useToast } from "@/components/ui";
 import { Stepper } from "@/components/layout/stepper";
 import { useForm } from "@/features/form/form-context";
+import { useIsMounted } from "@/lib/use-mounted";
 
 export function DownloadScreen() {
+  const isMounted = useIsMounted();
   const router = useRouter();
   const showToast = useToast();
   const {
@@ -23,7 +25,7 @@ export function DownloadScreen() {
   const filename =
     mode === "uploaded" && uploadedPdf
       ? uploadedPdf.filename.replace(/\.pdf$/i, "_completed.pdf")
-      : "northbridge_application_demo.pdf";
+      : activeForm.filename.replace(/\.pdf$/i, "_completed.pdf");
 
   async function handleDownload() {
     setDownloading(true);
@@ -38,11 +40,7 @@ export function DownloadScreen() {
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
 
-      showToast(
-        mode === "uploaded"
-          ? "Your completed PDF is downloading."
-          : "Your labeled sample PDF is downloading.",
-      );
+      showToast("Your completed PDF is downloading.");
     } catch {
       showToast("We couldn’t prepare the PDF. Try downloading again.");
     } finally {
@@ -53,6 +51,19 @@ export function DownloadScreen() {
   function handleTryAnother() {
     resetToDefaults();
     router.push("/");
+  }
+
+  if (!isMounted) {
+    return (
+      <section
+        id="view-download"
+        className="view"
+        aria-labelledby="download-heading"
+      >
+        <Stepper current={4} />
+        <div className="success-layout" style={{ minHeight: 480 }} />
+      </section>
+    );
   }
 
   return (
@@ -75,7 +86,7 @@ export function DownloadScreen() {
         <h1 id="download-heading">Paperwork, handled.</h1>
 
         <p className="muted">
-          Your sample form is ready. Download it, give it a final look,
+          Your completed form is ready. Download it, give it a final look,
           <br />
           and take your next step.
         </p>
@@ -92,15 +103,12 @@ export function DownloadScreen() {
             <div>
               <strong style={{ fontSize: 13 }}>{filename}</strong>
               <p className="small muted">
-                {activeForm.pageCount} page ·{" "}
-                {mode === "uploaded"
-                  ? "Completed original document"
-                  : "Generated design sample"}
+                {activeForm.pageCount}{" "}
+                {activeForm.pageCount === 1 ? "page" : "pages"} · Completed
+                original document
               </p>
             </div>
-            <Badge tone="neutral">
-              {mode === "uploaded" ? "Completed PDF" : "Demo export"}
-            </Badge>
+            <Badge tone="neutral">Completed PDF</Badge>
           </div>
 
           <div
@@ -114,8 +122,8 @@ export function DownloadScreen() {
               color: "var(--neutral-600)",
             }}
           >
-            <span>✓ Includes current sample answers</span>
-            <span>✓ Clearly labeled prototype</span>
+            <span>✓ Form answers verified</span>
+            <span>✓ Mapped directly to original PDF fields</span>
           </div>
 
           <Button
@@ -125,7 +133,7 @@ export function DownloadScreen() {
             onClick={handleDownload}
           >
             <Icon name="download" />
-            {mode === "uploaded" ? "Download completed PDF" : "Download sample PDF"}
+            Download completed PDF
           </Button>
 
           <p className="prototype-note" id="download-status" role="status">
@@ -138,8 +146,8 @@ export function DownloadScreen() {
             <Icon name="book" style={{ color: "var(--primary-500)" }} />
             <h3>Your next step</h3>
             <p>
-              In the finished app, you’ll submit the completed original PDF
-              through your institution’s preferred channel.
+              Submit your completed original PDF through your institution or
+              organization’s official channel.
             </p>
           </article>
 
@@ -154,15 +162,12 @@ export function DownloadScreen() {
         </div>
 
         <div className="demo-row" style={{ justifyContent: "center" }}>
-          <Button
-            variant="secondary"
-            onClick={() => router.push("/review")}
-          >
+          <Button variant="secondary" onClick={() => router.push("/review")}>
             <Icon name="edit" />
             Review my answers
           </Button>
           <Button variant="ghost" onClick={handleTryAnother}>
-            Try another form
+            Upload another form
             <Icon name="arrow" />
           </Button>
         </div>

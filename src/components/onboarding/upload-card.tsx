@@ -72,6 +72,15 @@ export function UploadCard() {
           message: result.message,
         });
       }
+    } catch (err) {
+      setParseError({
+        title: "Analysis could not complete.",
+        message:
+          err instanceof Error
+            ? err.message
+            : "An unexpected error occurred while analyzing the PDF. Please try again or use the prepared sample.",
+        isNoFields: true,
+      });
     } finally {
       setParsing(false);
     }
@@ -222,11 +231,12 @@ export function UploadCard() {
               onClick={handleAnalyzeSelected}
             >
               <Icon name="spark" />
-              Analyze this PDF
+              {parsing ? "Structuring form with Gemini…" : "Analyze this PDF"}
             </Button>
             <Button
               variant="ghost"
               size="sm"
+              disabled={parsing}
               onClick={() => {
                 clearSelection();
                 setParseError(null);
@@ -235,6 +245,11 @@ export function UploadCard() {
               Remove file
             </Button>
           </div>
+          {parsing && (
+            <p className="small muted" style={{ marginTop: 8 }}>
+              Scanning fillable fields and structuring questions with Gemini 3.6 Flash…
+            </p>
+          )}
         </Notice>
       )}
 

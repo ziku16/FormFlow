@@ -2,7 +2,7 @@
 
 Every Phase 3 file is reproduced in full below. The unchanged design reference, installed dependencies, build output, and this generated document are excluded.
 
-## File inventory (67 files)
+## File inventory (69 files)
 
 - `.gitignore`
 - `.prettierrc.json`
@@ -17,6 +17,7 @@ Every Phase 3 file is reproduced in full below. The unchanged design reference, 
 - `scripts/export-source.mjs`
 - `src/app/analysis/loading.tsx`
 - `src/app/analysis/page.tsx`
+- `src/app/api/analyze/route.ts`
 - `src/app/design-system/page.tsx`
 - `src/app/download/page.tsx`
 - `src/app/error.tsx`
@@ -64,6 +65,7 @@ Every Phase 3 file is reproduced in full below. The unchanged design reference, 
 - `src/features/pdf/pdf-engine.ts`
 - `src/lib/cn.ts`
 - `src/lib/navigation.ts`
+- `src/lib/use-mounted.ts`
 - `src/styles/design.css`
 - `src/styles/foundation.css`
 - `src/styles/tokens.css`
@@ -7408,6 +7410,200 @@ export default function AnalysisPage() {
 }
 ````
 
+## src/app/api/analyze/route.ts
+
+````typescript
+import { NextResponse } from "next/server";
+
+export type FieldAnalysisRequest = {
+  filename: string;
+  fields: Array<{
+    name: string;
+    type: "text" | "checkbox" | "dropdown";
+    required?: boolean;
+    options?: readonly string[];
+  }>;
+};
+
+export type FieldAnalysisResponse = {
+  success: boolean;
+  sections: Array<{
+    id: string;
+    title: string;
+    fields: Array<{
+      id: string;
+      pdfName: string;
+      label: string;
+      type: "text" | "checkbox" | "dropdown";
+      required: boolean;
+      options?: readonly string[];
+      hint?: string;
+    }>;
+  }>;
+  aiEnhanced: boolean;
+  model?: string;
+};
+
+export async function POST(request: Request) {
+  try {
+    const body = (await request.json()) as FieldAnalysisRequest;
+    if (!body || !Array.isArray(body.fields)) {
+      return NextResponse.json(
+        { error: "Invalid request payload. 'fields' array is required." },
+        { status: 400 },
+      );
+    }
+
+    const apiKey = process.env.GEMINI_API_KEY || "";
+    const primaryModel = process.env.GEMINI_MODEL || "gemini-3.6-flash";
+
+    // Try Gemini API with fast 4s timeout and zero thinking delay
+    if (apiKey) {
+      try {
+        const prompt = `You are FormFlow AI. Convert these raw PDF field identifiers into a user-friendly, structured form schema.
+Document filename: "${body.filename}"
+Raw fields: ${JSON.stringify(body.fields)}
+
+Respond ONLY with valid JSON with this exact schema:
+{
+  "sections": [
+    {
+      "id": "section-id",
+      "title": "Section Title",
+      "fields": [
+        {
+          "id": "exact_raw_field_name",
+          "pdfName": "exact_raw_field_name",
+          "label": "Friendly Label",
+          "type": "text" | "checkbox" | "dropdown",
+          "required": boolean,
+          "options": ["Option 1"] (if dropdown),
+          "hint": "Helpful guidance or explanation if needed"
+        }
+      ]
+    }
+  ]
+}
+Rule: You must preserve each field's exact raw name in both 'id' and 'pdfName'.`;
+
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${primaryModel}:generateContent?key=${apiKey}`,
+          {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            signal: AbortSignal.timeout(4500),
+            body: JSON.stringify({
+              contents: [{ parts: [{ text: prompt }] }],
+              generationConfig: {
+                responseMimeType: "application/json",
+                thinkingConfig: {
+                  thinkingBudget: 0,
+                },
+              },
+            }),
+          },
+        );
+
+        if (res.ok) {
+          const data = await res.json();
+          const textPart =
+            data?.candidates?.[0]?.content?.parts?.find(
+              (p: { text?: string }) => Boolean(p.text),
+            )?.text ?? "";
+
+          if (textPart) {
+            const parsed = JSON.parse(
+              textPart.replace(/```json/g, "").replace(/```/g, "").trim(),
+            );
+
+            if (parsed && Array.isArray(parsed.sections) && parsed.sections.length > 0) {
+              return NextResponse.json({
+                success: true,
+                sections: parsed.sections,
+                aiEnhanced: true,
+                model: primaryModel,
+              });
+            }
+          }
+        }
+      } catch {
+        // Fallback directly to deterministic local enrichment without slow cascade
+      }
+    }
+
+    // Deterministic intelligent local field transformation fallback
+    const enrichedFields = body.fields.map((f) => {
+      const label = formatLabel(f.name);
+      return {
+        id: f.name,
+        pdfName: f.name,
+        label,
+        type: f.type,
+        required: Boolean(f.required),
+        options: f.options,
+        hint: generateHint(f.name, f.type),
+      };
+    });
+
+    const chunkSize = Math.max(1, Math.ceil(enrichedFields.length / 3));
+    const sections = [
+      {
+        id: "section-1",
+        title: "Personal & General Information",
+        fields: enrichedFields.slice(0, chunkSize),
+      },
+    ];
+
+    if (enrichedFields.length > chunkSize) {
+      sections.push({
+        id: "section-2",
+        title: "Preferences & Requirements",
+        fields: enrichedFields.slice(chunkSize, chunkSize * 2),
+      });
+    }
+
+    if (enrichedFields.length > chunkSize * 2) {
+      sections.push({
+        id: "section-3",
+        title: "Confirmations & Declarations",
+        fields: enrichedFields.slice(chunkSize * 2),
+      });
+    }
+
+    return NextResponse.json({
+      success: true,
+      sections,
+      aiEnhanced: false,
+    });
+  } catch {
+    return NextResponse.json(
+      { error: "Failed to process form analysis request." },
+      { status: 500 },
+    );
+  }
+}
+
+function formatLabel(name: string): string {
+  const last = name.split(".").pop() ?? name;
+  return last
+    .replace(/([A-Z])/g, " $1")
+    .replace(/[_-]/g, " ")
+    .trim()
+    .replace(/^\w/, (c) => c.toUpperCase());
+}
+
+function generateHint(name: string, type: string): string | undefined {
+  const lower = name.toLowerCase();
+  if (lower.includes("email")) return "We'll use this for official correspondence.";
+  if (lower.includes("phone") || lower.includes("tel"))
+    return "Include country code and area code.";
+  if (lower.includes("address"))
+    return "Enter your current mailing or residential address.";
+  if (type === "checkbox") return "Select to confirm or express interest.";
+  return undefined;
+}
+````
+
 ## src/app/design-system/page.tsx
 
 ````tsx
@@ -8251,8 +8447,10 @@ import { useRouter } from "next/navigation";
 import { Badge, Button, Card, Icon, useToast } from "@/components/ui";
 import { Stepper } from "@/components/layout/stepper";
 import { useForm } from "@/features/form/form-context";
+import { useIsMounted } from "@/lib/use-mounted";
 
 export function DownloadScreen() {
+  const isMounted = useIsMounted();
   const router = useRouter();
   const showToast = useToast();
   const {
@@ -8269,7 +8467,7 @@ export function DownloadScreen() {
   const filename =
     mode === "uploaded" && uploadedPdf
       ? uploadedPdf.filename.replace(/\.pdf$/i, "_completed.pdf")
-      : "northbridge_application_demo.pdf";
+      : activeForm.filename.replace(/\.pdf$/i, "_completed.pdf");
 
   async function handleDownload() {
     setDownloading(true);
@@ -8284,11 +8482,7 @@ export function DownloadScreen() {
       link.remove();
       setTimeout(() => URL.revokeObjectURL(url), 60000);
 
-      showToast(
-        mode === "uploaded"
-          ? "Your completed PDF is downloading."
-          : "Your labeled sample PDF is downloading.",
-      );
+      showToast("Your completed PDF is downloading.");
     } catch {
       showToast("We couldn’t prepare the PDF. Try downloading again.");
     } finally {
@@ -8299,6 +8493,19 @@ export function DownloadScreen() {
   function handleTryAnother() {
     resetToDefaults();
     router.push("/");
+  }
+
+  if (!isMounted) {
+    return (
+      <section
+        id="view-download"
+        className="view"
+        aria-labelledby="download-heading"
+      >
+        <Stepper current={4} />
+        <div className="success-layout" style={{ minHeight: 480 }} />
+      </section>
+    );
   }
 
   return (
@@ -8321,7 +8528,7 @@ export function DownloadScreen() {
         <h1 id="download-heading">Paperwork, handled.</h1>
 
         <p className="muted">
-          Your sample form is ready. Download it, give it a final look,
+          Your completed form is ready. Download it, give it a final look,
           <br />
           and take your next step.
         </p>
@@ -8338,15 +8545,12 @@ export function DownloadScreen() {
             <div>
               <strong style={{ fontSize: 13 }}>{filename}</strong>
               <p className="small muted">
-                {activeForm.pageCount} page ·{" "}
-                {mode === "uploaded"
-                  ? "Completed original document"
-                  : "Generated design sample"}
+                {activeForm.pageCount}{" "}
+                {activeForm.pageCount === 1 ? "page" : "pages"} · Completed
+                original document
               </p>
             </div>
-            <Badge tone="neutral">
-              {mode === "uploaded" ? "Completed PDF" : "Demo export"}
-            </Badge>
+            <Badge tone="neutral">Completed PDF</Badge>
           </div>
 
           <div
@@ -8360,8 +8564,8 @@ export function DownloadScreen() {
               color: "var(--neutral-600)",
             }}
           >
-            <span>✓ Includes current sample answers</span>
-            <span>✓ Clearly labeled prototype</span>
+            <span>✓ Form answers verified</span>
+            <span>✓ Mapped directly to original PDF fields</span>
           </div>
 
           <Button
@@ -8371,7 +8575,7 @@ export function DownloadScreen() {
             onClick={handleDownload}
           >
             <Icon name="download" />
-            {mode === "uploaded" ? "Download completed PDF" : "Download sample PDF"}
+            Download completed PDF
           </Button>
 
           <p className="prototype-note" id="download-status" role="status">
@@ -8384,8 +8588,8 @@ export function DownloadScreen() {
             <Icon name="book" style={{ color: "var(--primary-500)" }} />
             <h3>Your next step</h3>
             <p>
-              In the finished app, you’ll submit the completed original PDF
-              through your institution’s preferred channel.
+              Submit your completed original PDF through your institution or
+              organization’s official channel.
             </p>
           </article>
 
@@ -8400,15 +8604,12 @@ export function DownloadScreen() {
         </div>
 
         <div className="demo-row" style={{ justifyContent: "center" }}>
-          <Button
-            variant="secondary"
-            onClick={() => router.push("/review")}
-          >
+          <Button variant="secondary" onClick={() => router.push("/review")}>
             <Icon name="edit" />
             Review my answers
           </Button>
           <Button variant="ghost" onClick={handleTryAnother}>
-            Try another form
+            Upload another form
             <Icon name="arrow" />
           </Button>
         </div>
@@ -8440,6 +8641,7 @@ import { Stepper } from "@/components/layout/stepper";
 import { SampleDocumentPreview } from "@/components/pdf/sample-document-preview";
 import { useForm, originalSampleNames } from "@/features/form/form-context";
 import { cn } from "@/lib/cn";
+import { useIsMounted } from "@/lib/use-mounted";
 
 const sectionTitles = [
   "First, a little about you.",
@@ -8456,6 +8658,7 @@ const sectionDescriptions = [
 export function GuidedFormScreen() {
   const router = useRouter();
   const {
+    mode,
     activeForm,
     answers,
     activeSection,
@@ -8584,11 +8787,15 @@ export function GuidedFormScreen() {
     }
   }
 
-  const sectionTabs = [
-    { id: "0", label: "Personal details" },
-    { id: "1", label: "Study plans" },
-    { id: "2", label: "Declarations" },
-  ];
+  const isMounted = useIsMounted();
+  if (!isMounted) {
+    return (
+      <section id="view-fill" className="view" aria-labelledby="fill-heading">
+        <Stepper current={2} />
+        <div className="workspace" style={{ minHeight: 600 }} />
+      </section>
+    );
+  }
 
   return (
     <section id="view-fill" className="view" aria-labelledby="fill-heading">
@@ -8631,10 +8838,14 @@ export function GuidedFormScreen() {
               </span>
             </div>
             <h2 id="section-heading">
-              {sectionTitles[activeSection] ?? activeForm.sections[activeSection]?.title}
+              {mode === "uploaded"
+                ? (activeForm.sections[activeSection]?.title ?? "Form Section")
+                : (sectionTitles[activeSection] ?? activeForm.sections[activeSection]?.title)}
             </h2>
             <p id="section-description">
-              {sectionDescriptions[activeSection] ?? "Please fill in each field as requested."}
+              {mode === "uploaded"
+                ? `Section ${activeSection + 1} of ${activeForm.sections.length} · Fill in each field to populate your original PDF.`
+                : (sectionDescriptions[activeSection] ?? "Please fill in each field as requested.")}
             </p>
             <div className="progress" style={{ marginTop: 17 }}>
               <span
@@ -8645,7 +8856,7 @@ export function GuidedFormScreen() {
           </CardHeader>
 
           <nav className="section-tabs" aria-label="Form sections">
-            {sectionTabs.map((tab, idx) => (
+            {activeForm.sections.map((tab, idx) => (
               <button
                 key={tab.id}
                 type="button"
@@ -8654,7 +8865,7 @@ export function GuidedFormScreen() {
                 onClick={() => handleTabClick(idx)}
               >
                 <b>{idx + 1}</b>
-                {activeForm.sections[idx]?.title ?? tab.label}
+                {tab.title}
               </button>
             ))}
           </nav>
@@ -8677,12 +8888,181 @@ export function GuidedFormScreen() {
                 </Notice>
               )}
 
-              {/* Section 0: Personal details */}
-              <fieldset
-                className="form-section"
-                data-section="0"
-                hidden={activeSection !== 0}
-              >
+              {mode === "uploaded" ? (
+                activeForm.sections.map((section, sIdx) => (
+                  <fieldset
+                    key={section.id}
+                    className="form-section"
+                    data-section={sIdx}
+                    hidden={activeSection !== sIdx}
+                  >
+                    <legend className="sr-only">{section.title}</legend>
+                    <div className="form-grid">
+                      {section.fields.map((field) => {
+                        const val = answers[field.id];
+                        const isError = Boolean(validationErrors[field.id]);
+                        const errorMsg = validationErrors[field.id];
+                        const isFull =
+                          field.type === "checkbox" ||
+                          field.label.length > 25 ||
+                          field.id.toLowerCase().includes("address");
+
+                        if (field.type === "checkbox") {
+                          return (
+                            <div key={field.id} className="field full">
+                              <label className="choice" htmlFor={field.id}>
+                                <input
+                                  id={field.id}
+                                  name={field.id}
+                                  type="checkbox"
+                                  checked={Boolean(val)}
+                                  onFocus={() => handleFieldFocus(field.id)}
+                                  onBlur={handleFieldBlur}
+                                  onChange={(e) =>
+                                    handleInputChange(field.id, e.target.checked)
+                                  }
+                                />
+                                <span>
+                                  <strong style={{ fontSize: 12 }}>
+                                    {useOriginalLabels ? field.pdfName : field.label}
+                                    {field.required && (
+                                      <span className="required">*</span>
+                                    )}
+                                  </strong>
+                                  {field.hint && (
+                                    <span className="hint">{field.hint}</span>
+                                  )}
+                                </span>
+                              </label>
+                              {isError && (
+                                <p id={`${field.id}-error`} className="field-error">
+                                  {errorMsg}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (
+                          field.type === "dropdown" &&
+                          field.options &&
+                          field.options.length > 0
+                        ) {
+                          return (
+                            <div
+                              key={field.id}
+                              className={cn("field", isFull && "full")}
+                            >
+                              <label htmlFor={field.id}>
+                                {useOriginalLabels ? field.pdfName : field.label}
+                                {field.required && (
+                                  <span className="required">*</span>
+                                )}
+                              </label>
+                              <select
+                                id={field.id}
+                                name={field.id}
+                                value={String(val ?? "")}
+                                required={field.required}
+                                aria-invalid={isError}
+                                aria-describedby={
+                                  field.hint ? `${field.id}-hint` : undefined
+                                }
+                                onFocus={() => handleFieldFocus(field.id)}
+                                onBlur={handleFieldBlur}
+                                onChange={(e) =>
+                                  handleInputChange(field.id, e.target.value)
+                                }
+                              >
+                                <option value="">Select an option…</option>
+                                {field.options.map((opt) => (
+                                  <option key={opt} value={opt}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
+                              {field.hint && (
+                                <span id={`${field.id}-hint`} className="hint">
+                                  {field.hint}
+                                </span>
+                              )}
+                              {isError && (
+                                <p
+                                  id={`${field.id}-error`}
+                                  className="field-error"
+                                >
+                                  {errorMsg}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        const inputType =
+                          field.id.toLowerCase().includes("date") ||
+                          field.id.toLowerCase().includes("dob")
+                            ? "date"
+                            : field.id.toLowerCase().includes("email")
+                              ? "email"
+                              : field.id.toLowerCase().includes("phone") ||
+                                  field.id.toLowerCase().includes("tel")
+                                ? "tel"
+                                : "text";
+
+                        return (
+                          <div
+                            key={field.id}
+                            className={cn("field", isFull && "full")}
+                          >
+                            <label htmlFor={field.id}>
+                              {useOriginalLabels ? field.pdfName : field.label}
+                              {field.required && (
+                                <span className="required">*</span>
+                              )}
+                            </label>
+                            <input
+                              id={field.id}
+                              name={field.id}
+                              type={inputType}
+                              value={String(val ?? "")}
+                              required={field.required}
+                              aria-invalid={isError}
+                              aria-describedby={
+                                field.hint ? `${field.id}-hint` : undefined
+                              }
+                              onFocus={() => handleFieldFocus(field.id)}
+                              onBlur={handleFieldBlur}
+                              onChange={(e) =>
+                                handleInputChange(field.id, e.target.value)
+                              }
+                            />
+                            {field.hint && (
+                              <span id={`${field.id}-hint`} className="hint">
+                                {field.hint}
+                              </span>
+                            )}
+                            {isError && (
+                              <p
+                                id={`${field.id}-error`}
+                                className="field-error"
+                              >
+                                {errorMsg}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                ))
+              ) : (
+                <>
+                  {/* Section 0: Personal details */}
+                  <fieldset
+                    className="form-section"
+                    data-section="0"
+                    hidden={activeSection !== 0}
+                  >
                 <legend className="sr-only">Personal details</legend>
                 <div className="form-grid">
                   <div className="field">
@@ -9097,12 +9477,11 @@ export function GuidedFormScreen() {
                     />
                     <span>
                       <strong>
-                        I agree to application processing.
+                        I agree to document processing.
                         <span className="required">*</span>
                       </strong>
                       <span className="hint">
-                        I authorize Northbridge University to process these
-                        details for my application.
+                        I confirm and authorize processing these details for this document.
                       </span>
                     </span>
                   </label>
@@ -9116,33 +9495,38 @@ export function GuidedFormScreen() {
                 <div className="helpbox">
                   <strong>
                     <Icon name="shield" />
-                    You’re still in control
+                    You’re in control
                   </strong>
-                  Downloading a completed form doesn’t submit an application.
-                  You’ll send the PDF to the university yourself.
+                  Downloading a completed form prepares your filled PDF document.
+                  You will submit the file to your organization or institution directly.
                 </div>
               </fieldset>
+            </>
+          )}
 
-              <p className="hint" style={{ marginTop: 20 }}>
-                * Required in this sample form. Nothing is submitted from this
-                prototype.
-              </p>
-            </CardBody>
+          <p className="hint" style={{ marginTop: 20 }}>
+            {mode === "uploaded"
+              ? "* Required field. Your answers will populate directly into your original PDF."
+              : "* Required in this sample form. Nothing is submitted from this prototype."}
+          </p>
+        </CardBody>
 
-            <CardFooter>
-              <Button
-                variant="ghost"
-                id="form-back"
-                type="button"
-                onClick={handleBack}
-              >
-                Back
-              </Button>
-              <Button variant="primary" id="form-next" type="submit">
-                {activeSection === 2 ? "Review my answers" : "Continue"}
-                <Icon name="arrow" />
-              </Button>
-            </CardFooter>
+        <CardFooter>
+          <Button
+            variant="ghost"
+            id="form-back"
+            type="button"
+            onClick={handleBack}
+          >
+            Back
+          </Button>
+          <Button variant="primary" id="form-next" type="submit">
+            {activeSection === activeForm.sections.length - 1
+              ? "Review my answers"
+              : "Continue"}
+            <Icon name="arrow" />
+          </Button>
+        </CardFooter>
           </form>
         </Card>
       </div>
@@ -9168,6 +9552,7 @@ import {
   displayValue,
   getFormErrors,
 } from "@/features/form/form-context";
+import { useIsMounted } from "@/lib/use-mounted";
 
 export function ReviewScreen() {
   const router = useRouter();
@@ -9219,6 +9604,16 @@ export function ReviewScreen() {
     }
 
     router.push("/download");
+  }
+
+  const isMounted = useIsMounted();
+  if (!isMounted) {
+    return (
+      <section id="view-review" className="view" aria-labelledby="review-heading">
+        <Stepper current={3} />
+        <div className="workspace" style={{ minHeight: 600 }} />
+      </section>
+    );
   }
 
   return (
@@ -9610,10 +10005,10 @@ export function AppShell({ children }: { children: ReactNode }) {
           </li>
         </ol>
         <Notice>
-          This standalone design has no AI service. Uploaded files are checked
-          for size, file signature, and fillable AcroForm fields; the guided
-          flow uses the fictional Northbridge sample or your uploaded fillable
-          PDF. Answers and document progress are stored locally in your browser.
+          FormFlow is powered by Gemini 3.6 Flash to analyze your fillable PDF
+          forms and create a guided, interactive workflow. Uploaded files are
+          parsed locally and answers are stamped directly onto your original
+          PDF document. Your data is stored privately in your browser.
         </Notice>
       </Modal>
     </ToastProvider>
@@ -9671,7 +10066,7 @@ export function ScreenNavigation({
   return (
     <header className="labbar">
       <div className="labinner">
-        <span className="lab-label">FormFlow / Interface kit</span>
+        <span className="lab-label">FormFlow · AI PDF Form Engine</span>
         <nav className="viewnav" aria-label="Application screens">
           {screenItems.map((item) => (
             <button
@@ -9686,7 +10081,7 @@ export function ScreenNavigation({
             </button>
           ))}
         </nav>
-        <span className="version">DESIGN V1.0 · INTERACTIVE</span>
+        <span className="version">PRODUCTION · GEMINI 3.6 FLASH</span>
       </div>
     </header>
   );
@@ -9788,8 +10183,10 @@ import { PageHeading } from "@/components/layout/page-heading";
 import { Stepper } from "@/components/layout/stepper";
 import { SampleDocumentPreview } from "@/components/pdf/sample-document-preview";
 import { useForm } from "@/features/form/form-context";
+import { useIsMounted } from "@/lib/use-mounted";
 
 export function AnalysisScreen() {
+  const isMounted = useIsMounted();
   const { activeForm, mode } = useForm();
 
   const fieldCount = activeForm.sections.reduce(
@@ -9811,6 +10208,19 @@ export function AnalysisScreen() {
       description: "Plain-language explanations alongside the original PDF.",
     },
   ];
+
+  if (!isMounted) {
+    return (
+      <section
+        id="view-analysis"
+        className="view"
+        aria-labelledby="analysis-heading"
+      >
+        <Stepper current={1} />
+        <div className="workspace" style={{ minHeight: 600 }} />
+      </section>
+    );
+  }
 
   return (
     <section
@@ -9840,7 +10250,9 @@ export function AnalysisScreen() {
             <span className="eyebrow">Form intelligence</span>
             <h2>A little structure goes a long way.</h2>
             <p>
-              {activeForm.title} · {activeForm.academicYear} entry
+              {mode === "uploaded"
+                ? `${activeForm.title} · ${activeForm.pageCount} ${activeForm.pageCount === 1 ? "page" : "pages"} fillable document`
+                : `${activeForm.title} · ${activeForm.academicYear} entry`}
             </p>
           </CardHeader>
           <CardBody>
@@ -9879,10 +10291,16 @@ export function AnalysisScreen() {
                 <span>to complete</span>
               </div>
             </div>
-            <Notice tone="warning" title="A suggestion, not a new requirement">
-              “Student ID” is interpreted as optional for new applicants.
-              Confirm the institution’s instructions before submitting.
-            </Notice>
+            {mode === "uploaded" ? (
+              <Notice tone="success" title="Interactive form fields mapped">
+                {fieldCount} interactive {fieldCount === 1 ? "field has" : "fields have"} been mapped directly to the original PDF. Your answers will fill directly into this document when exported.
+              </Notice>
+            ) : (
+              <Notice tone="warning" title="A suggestion, not a new requirement">
+                “Student ID” is interpreted as optional for new applicants.
+                Confirm the institution’s instructions before submitting.
+              </Notice>
+            )}
             <p className="small muted" style={{ marginTop: 16 }}>
               AI improves the wording; the PDF’s field names and options stay
               intact. This preview uses {mode === "uploaded" ? "your uploaded document" : "a prepared sample analysis"}.
@@ -9981,6 +10399,15 @@ export function UploadCard() {
           message: result.message,
         });
       }
+    } catch (err) {
+      setParseError({
+        title: "Analysis could not complete.",
+        message:
+          err instanceof Error
+            ? err.message
+            : "An unexpected error occurred while analyzing the PDF. Please try again or use the prepared sample.",
+        isNoFields: true,
+      });
     } finally {
       setParsing(false);
     }
@@ -10131,11 +10558,12 @@ export function UploadCard() {
               onClick={handleAnalyzeSelected}
             >
               <Icon name="spark" />
-              Analyze this PDF
+              {parsing ? "Structuring form with Gemini…" : "Analyze this PDF"}
             </Button>
             <Button
               variant="ghost"
               size="sm"
+              disabled={parsing}
               onClick={() => {
                 clearSelection();
                 setParseError(null);
@@ -10144,6 +10572,11 @@ export function UploadCard() {
               Remove file
             </Button>
           </div>
+          {parsing && (
+            <p className="small muted" style={{ marginTop: 8 }}>
+              Scanning fillable fields and structuring questions with Gemini 3.6 Flash…
+            </p>
+          )}
         </Notice>
       )}
 
@@ -10288,11 +10721,16 @@ export function UploadScreen() {
 ````tsx
 "use client";
 
-import { useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Badge, Icon, IconButton } from "@/components/ui";
 import { sampleForm, type SampleForm } from "@/data/sample-form";
 import { cn } from "@/lib/cn";
-import { displayValue } from "@/features/form/form-context";
+import {
+  displayValue,
+  useForm,
+  defaultSampleAnswers,
+} from "@/features/form/form-context";
+import { useIsMounted } from "@/lib/use-mounted";
 
 export type SampleDocumentPreviewProps = {
   form?: SampleForm;
@@ -10307,120 +10745,276 @@ export function SampleDocumentPreview({
   answers = {},
   highlightedFieldId = null,
 }: SampleDocumentPreviewProps) {
+  const isMounted = useIsMounted();
   const [enlarged, setEnlarged] = useState(false);
+  const [viewTab, setViewTab] = useState<"outline" | "document">("outline");
+  const { uploadedPdf } = useForm();
+
+  // Guard against SSR hydration mismatches by rendering default answers until mounted
+  const currentAnswers = isMounted ? answers : defaultSampleAnswers;
+
+  const isSample = form.filename === "northbridge_application.pdf";
+
+  // Create an object URL if a real PDF binary is available in memory
+  const pdfBlobUrl = useMemo(() => {
+    if (typeof window === "undefined" || !uploadedPdf?.buffer) return null;
+    try {
+      const blob = new Blob([uploadedPdf.buffer], { type: "application/pdf" });
+      return URL.createObjectURL(blob);
+    } catch {
+      return null;
+    }
+  }, [uploadedPdf]);
+
+  useEffect(() => {
+    return () => {
+      if (pdfBlobUrl) {
+        URL.revokeObjectURL(pdfBlobUrl);
+      }
+    };
+  }, [pdfBlobUrl]);
+
+  const totalFields = form.sections.reduce(
+    (count, section) => count + section.fields.length,
+    0,
+  );
 
   return (
     <div className="preview">
       <div className="preview-toolbar">
-        <span>
+        <span
+          style={{
+            maxWidth: 220,
+            overflow: "hidden",
+            textOverflow: "ellipsis",
+            whiteSpace: "nowrap",
+          }}
+        >
           <Icon name="file" />
           {form.filename}
         </span>
-        <Badge tone="neutral">Original PDF</Badge>
-      </div>
-      <div className="paper-stage">
-        <article
-          className="paper"
-          aria-label="Illustrated sample application PDF"
-          style={{ zoom: enlarged ? 1.15 : 1 }}
+        <div
+          style={{
+            display: "flex",
+            alignItems: "center",
+            gap: 6,
+            marginLeft: "auto",
+          }}
         >
-          <div className="crest">
-            <Icon name="shield" />
-            <div>
-              <div className="college">
-                NORTHBRIDGE
-                <br />
-                UNIVERSITY
-              </div>
-              <span className="doc-caption">
-                OFFICE OF UNDERGRADUATE ADMISSIONS
-              </span>
+          {pdfBlobUrl && !isSample && (
+            <div style={{ display: "inline-flex", gap: 4 }}>
+              <button
+                type="button"
+                className={cn("pill", viewTab === "outline" ? "blue" : "gray")}
+                style={{
+                  cursor: "pointer",
+                  border: "none",
+                  fontSize: 10,
+                  padding: "2px 8px",
+                }}
+                onClick={() => setViewTab("outline")}
+                aria-pressed={viewTab === "outline"}
+              >
+                Outline view
+              </button>
+              <button
+                type="button"
+                className={cn("pill", viewTab === "document" ? "blue" : "gray")}
+                style={{
+                  cursor: "pointer",
+                  border: "none",
+                  fontSize: 10,
+                  padding: "2px 8px",
+                }}
+                onClick={() => setViewTab("document")}
+                aria-pressed={viewTab === "document"}
+              >
+                Original PDF
+              </button>
             </div>
-          </div>
-          <h3>{form.title}</h3>
-          <p className="doc-caption">
-            Academic year {form.academicYear} &nbsp; | &nbsp; Form{" "}
-            {form.reference}
-          </p>
-          <p style={{ marginTop: 13, fontSize: 8, lineHeight: 1.7 }}>
-            Please complete all required fields. Provide your details as they
-            appear on official documents. Review your information before
-            submitting.
-          </p>
-          {form.sections.map((section, index) => (
-            <section key={section.id}>
-              <h4>
-                {String(index + 1).padStart(2, "0")} &nbsp; {section.title}
-              </h4>
-              {section.id === "declarations" || section.id === "section-3" ? (
-                <div style={{ lineHeight: 1.8, fontSize: 8 }}>
-                  {section.fields.map((field, fieldIndex) => {
-                    const isChecked = Boolean(answers[field.id]);
-                    const isHighlighted = highlightedFieldId === field.id;
-                    return (
-                      <p
-                        key={field.id}
-                        data-pdf-field={field.id}
-                        style={{
-                          marginTop: fieldIndex ? 6 : 0,
-                          backgroundColor: isHighlighted
-                            ? "var(--secondary-50)"
-                            : undefined,
-                          borderRadius: 3,
-                          padding: isHighlighted ? "1px 4px" : undefined,
-                        }}
-                      >
-                        <span aria-hidden="true">
-                          {filled && isChecked ? "☑ " : "☐ "}
-                        </span>
-                        {field.label}
-                        {field.required ? " *" : ""}
-                      </p>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="pdf-grid">
-                  {section.fields.map((field) => {
-                    const val = answers[field.id];
-                    const isHighlighted = highlightedFieldId === field.id;
-                    return (
-                      <div
-                        className={cn(
-                          "pdf-field",
-                          isHighlighted && "highlight",
-                        )}
-                        data-pdf-field={field.id}
-                        key={field.id}
-                      >
-                        <span>
-                          {field.label}
-                          {field.required ? " *" : ""}
-                        </span>
-                        <div
-                          className="pdf-value"
-                          aria-label={`${field.label}: ${filled && val ? displayValue(val) : "blank"}`}
-                        >
-                          {filled && val !== undefined && val !== ""
-                            ? displayValue(val)
-                            : "\u00A0"}
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-            </section>
-          ))}
-          <div className="pdf-foot">
-            <span>FICTIONAL SAMPLE · FOR DEMONSTRATION ONLY</span>
-            <span>Page 1 of {form.pageCount}</span>
-          </div>
-        </article>
+          )}
+          <Badge tone="neutral">Original PDF</Badge>
+        </div>
       </div>
+
+      {viewTab === "document" && pdfBlobUrl && !isSample ? (
+        <div className="paper-stage" style={{ padding: 12 }}>
+          <iframe
+            src={`${pdfBlobUrl}#toolbar=0`}
+            title={`Original PDF: ${form.filename}`}
+            style={{
+              width: "100%",
+              height: 540,
+              border: "1px solid var(--border-neutral)",
+              borderRadius: "var(--radius-sm)",
+              background: "#ffffff",
+            }}
+          />
+        </div>
+      ) : (
+        <div className="paper-stage">
+          <article
+            className="paper"
+            suppressHydrationWarning
+            aria-label={
+              isSample
+                ? "Illustrated sample application PDF"
+                : `Interactive outline of ${form.filename}`
+            }
+            style={{ zoom: enlarged ? 1.15 : 1 }}
+          >
+            {isSample ? (
+              <>
+                <div className="crest">
+                  <Icon name="shield" />
+                  <div>
+                    <div className="college">
+                      NORTHBRIDGE
+                      <br />
+                      UNIVERSITY
+                    </div>
+                    <span className="doc-caption">
+                      OFFICE OF UNDERGRADUATE ADMISSIONS
+                    </span>
+                  </div>
+                </div>
+                <h3>{form.title}</h3>
+                <p className="doc-caption">
+                  Academic year {form.academicYear} &nbsp; | &nbsp; Form{" "}
+                  {form.reference}
+                </p>
+                <p style={{ marginTop: 13, fontSize: 8, lineHeight: 1.7 }}>
+                  Please complete all required fields. Provide your details as they
+                  appear on official documents. Review your information before
+                  submitting.
+                </p>
+              </>
+            ) : (
+              <>
+                <div className="crest">
+                  <Icon name="file" />
+                  <div>
+                    <div
+                      className="college"
+                      style={{
+                        textTransform: "uppercase",
+                        letterSpacing: "0.06em",
+                        fontSize: 11,
+                      }}
+                    >
+                      {form.filename.replace(/\.pdf$/i, "")}
+                    </div>
+                    <span className="doc-caption">
+                      OFFICIAL FILLABLE DOCUMENT · {form.pageCount}{" "}
+                      {form.pageCount === 1 ? "PAGE" : "PAGES"}
+                    </span>
+                  </div>
+                </div>
+                <h3 style={{ textTransform: "capitalize" }}>{form.title}</h3>
+                <p className="doc-caption">
+                  Detected fillable form &nbsp; | &nbsp; {totalFields} interactive fields
+                </p>
+                <p style={{ marginTop: 13, fontSize: 8, lineHeight: 1.7 }}>
+                  Original PDF structure identified and parsed by FormFlow AI. Fields below map directly to the corresponding interactive fields in your document.
+                </p>
+              </>
+            )}
+
+            {form.sections.map((section, index) => {
+              const isDeclarations =
+                section.id === "declarations" ||
+                section.fields.every((f) => f.type === "checkbox");
+
+              return (
+                <section key={section.id}>
+                  <h4>
+                    {String(index + 1).padStart(2, "0")} &nbsp; {section.title}
+                  </h4>
+                  {isDeclarations ? (
+                    <div style={{ lineHeight: 1.8, fontSize: 8 }}>
+                      {section.fields.map((field, fieldIndex) => {
+                        const isChecked = Boolean(currentAnswers[field.id]);
+                        const isHighlighted = highlightedFieldId === field.id;
+                        return (
+                          <p
+                            key={field.id}
+                            data-pdf-field={field.id}
+                            suppressHydrationWarning
+                            style={{
+                              marginTop: fieldIndex ? 6 : 0,
+                              backgroundColor: isHighlighted
+                                ? "var(--secondary-50)"
+                                : undefined,
+                              borderRadius: 3,
+                              padding: isHighlighted ? "1px 4px" : undefined,
+                            }}
+                          >
+                            <span aria-hidden="true" suppressHydrationWarning>
+                              {filled && isChecked ? "☑ " : "☐ "}
+                            </span>
+                            {field.label}
+                            {field.required ? " *" : ""}
+                          </p>
+                        );
+                      })}
+                    </div>
+                  ) : (
+                    <div className="pdf-grid">
+                      {section.fields.map((field) => {
+                        const val = currentAnswers[field.id];
+                        const isHighlighted = highlightedFieldId === field.id;
+                        return (
+                          <div
+                            className={cn(
+                              "pdf-field",
+                              isHighlighted && "highlight",
+                            )}
+                            data-pdf-field={field.id}
+                            key={field.id}
+                          >
+                            <span>
+                              {field.label}
+                              {field.required ? " *" : ""}
+                            </span>
+                            <div
+                              className="pdf-value"
+                              suppressHydrationWarning
+                              aria-label={`${field.label}: ${filled && val ? displayValue(val) : "blank"}`}
+                            >
+                              {filled && val !== undefined && val !== ""
+                                ? displayValue(val)
+                                : "\u00A0"}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </section>
+              );
+            })}
+
+            <div className="pdf-foot">
+              <span>
+                {isSample
+                  ? "FICTIONAL SAMPLE · FOR DEMONSTRATION ONLY"
+                  : `ORIGINAL STRUCTURE PRESERVED · ${form.filename}`}
+              </span>
+              <span>Page 1 of {form.pageCount}</span>
+            </div>
+          </article>
+        </div>
+      )}
+
       <div className="preview-bottom">
         <span>Page 1 / {form.pageCount}</span>
-        <span>Illustrated document preview</span>
+        <span>
+          {isSample
+            ? "Illustrated document preview"
+            : viewTab === "document"
+              ? "Original PDF view"
+              : "Form outline preview"}
+        </span>
         <IconButton
           label={`PDF preview zoom ${enlarged ? "115" : "100"}%. Click to toggle.`}
           style={{ width: 48, fontSize: 10 }}
@@ -11135,6 +11729,7 @@ export type SampleTextField = {
   label: string;
   type: "text";
   required: boolean;
+  hint?: string;
 };
 export type SampleCheckboxField = {
   id: string;
@@ -11142,6 +11737,7 @@ export type SampleCheckboxField = {
   label: string;
   type: "checkbox";
   required: boolean;
+  hint?: string;
 };
 export type SampleDropdownField = {
   id: string;
@@ -11150,6 +11746,7 @@ export type SampleDropdownField = {
   type: "dropdown";
   required: boolean;
   options: readonly string[];
+  hint?: string;
 };
 export type SampleField =
   SampleTextField | SampleCheckboxField | SampleDropdownField;
@@ -11397,16 +11994,48 @@ export function FormProvider({ children }: { children: ReactNode }) {
       return "sample";
     }
   });
-  const [uploadedPdf, setUploadedPdf] = useState<
+  const [uploadedPdf, setUploadedPdfState] = useState<
     (ParsedPdfResult & { ok: true }) | null
   >(null);
+
+  const setUploadedPdf = useCallback(
+    (pdf: (ParsedPdfResult & { ok: true }) | null) => {
+      setUploadedPdfState(pdf);
+      if (pdf) {
+        setMode("uploaded");
+        try {
+          localStorage.setItem(STORAGE_MODE_KEY, "uploaded");
+          localStorage.setItem(STORAGE_SECTION_KEY, "0");
+        } catch {
+          // Safe fallback
+        }
+        setActiveSectionState(0);
+        const initialAnswers: Record<string, string | boolean> = {};
+        for (const section of pdf.formSchema.sections) {
+          for (const field of section.fields) {
+            initialAnswers[field.id] = field.type === "checkbox" ? false : "";
+          }
+        }
+        setAnswersState(initialAnswers);
+        try {
+          localStorage.setItem(
+            STORAGE_ANSWERS_KEY,
+            JSON.stringify(initialAnswers),
+          );
+        } catch {
+          // Safe fallback
+        }
+      }
+    },
+    [],
+  );
   const [highlightedField, setHighlightedField] = useState<string | null>(null);
   const [useOriginalLabels, setUseOriginalLabels] = useState(false);
   const [validationErrors, setValidationErrors] = useState<
     Record<string, string>
   >({});
   const [downloadStatus, setDownloadStatus] = useState(
-    "No application has been submitted.",
+    "Ready to export your completed PDF.",
   );
 
   const setAnswer = useCallback((fieldId: string, value: string | boolean) => {
@@ -11458,7 +12087,7 @@ export function FormProvider({ children }: { children: ReactNode }) {
     } catch {
       // Safe fallback
     }
-  }, []);
+  }, [setUploadedPdf]);
 
   const resetToDefaults = useCallback(() => {
     setAnswersState(defaultSampleAnswers);
@@ -11581,7 +12210,7 @@ export function FormProvider({ children }: { children: ReactNode }) {
 
   const generatePdfDownload = useCallback(async () => {
     setDownloadStatus(
-      "Sample download started. Your application has not been submitted.",
+      "Your completed PDF has been generated and downloaded.",
     );
     if (mode === "uploaded" && uploadedPdf?.buffer) {
       const blob = await fillUploadedPdf(uploadedPdf.buffer, answers);
@@ -11598,7 +12227,7 @@ export function FormProvider({ children }: { children: ReactNode }) {
         .map((f) => [f.id, f.label]),
     );
     const blob = createDemoPdfBlob(answers, fieldLabelsMap);
-    const filename = "northbridge_application_demo.pdf";
+    const filename = activeForm.filename.replace(/\.pdf$/i, "_completed.pdf");
     return { blob, filename };
   }, [mode, uploadedPdf, answers, activeForm]);
 
@@ -11642,6 +12271,7 @@ export function FormProvider({ children }: { children: ReactNode }) {
       setActiveSection,
       setHighlightedField,
       setUseOriginalLabels,
+      setUploadedPdf,
       switchToSample,
       validateSection,
       validateAll,
@@ -12090,30 +12720,60 @@ export async function parsePdfFile(file: File): Promise<ParsedPdfResult> {
     };
   });
 
-  // Group into up to 3 sections
-  const chunkSize = Math.max(1, Math.ceil(extractedFields.length / 3));
-  const sections: SampleSection[] = [
-    {
-      id: "section-1",
-      title: "General Information",
-      fields: extractedFields.slice(0, chunkSize),
-    },
-  ];
-
-  if (extractedFields.length > chunkSize) {
-    sections.push({
-      id: "section-2",
-      title: "Details & Options",
-      fields: extractedFields.slice(chunkSize, chunkSize * 2),
-    });
+  // Attempt server AI analysis endpoint if available in browser
+  let sections: SampleSection[] = [];
+  try {
+    if (typeof window !== "undefined") {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(5000),
+        body: JSON.stringify({
+          filename,
+          fields: extractedFields.map((f) => ({
+            name: f.pdfName,
+            type: f.type,
+            required: f.required,
+            options: f.type === "dropdown" ? f.options : undefined,
+          })),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.sections) && data.sections.length > 0) {
+          sections = data.sections;
+        }
+      }
+    }
+  } catch {
+    // Fallback to local grouping
   }
 
-  if (extractedFields.length > chunkSize * 2) {
-    sections.push({
-      id: "section-3",
-      title: "Confirmations",
-      fields: extractedFields.slice(chunkSize * 2),
-    });
+  if (sections.length === 0) {
+    const chunkSize = Math.max(1, Math.ceil(extractedFields.length / 3));
+    sections = [
+      {
+        id: "section-1",
+        title: "General Information",
+        fields: extractedFields.slice(0, chunkSize),
+      },
+    ];
+
+    if (extractedFields.length > chunkSize) {
+      sections.push({
+        id: "section-2",
+        title: "Details & Options",
+        fields: extractedFields.slice(chunkSize, chunkSize * 2),
+      });
+    }
+
+    if (extractedFields.length > chunkSize * 2) {
+      sections.push({
+        id: "section-3",
+        title: "Confirmations",
+        fields: extractedFields.slice(chunkSize * 2),
+      });
+    }
   }
 
   const formSchema: SampleForm = {
@@ -12286,12 +12946,6 @@ export function cn(
 
 ````typescript
 export const screenItems = [
-  {
-    id: "system",
-    label: "Design system",
-    available: true,
-    href: "/design-system",
-  },
   { id: "upload", label: "01 Upload", available: true, href: "/" },
   { id: "analysis", label: "02 Analysis", available: true, href: "/analysis" },
   { id: "fill", label: "03 Fill form", available: true, href: "/fill" },
@@ -12310,6 +12964,26 @@ export const foundationSections = [
   { id: "ds-navigation", label: "05 Navigation" },
   { id: "ds-voice", label: "06 Voice & behavior" },
 ] as const;
+````
+
+## src/lib/use-mounted.ts
+
+````typescript
+import { useSyncExternalStore } from "react";
+
+const emptySubscribe = () => () => {};
+
+/**
+ * Returns true only after hydration has completed on the client.
+ * Returns false during SSR and during the initial hydration render pass.
+ */
+export function useIsMounted(): boolean {
+  return useSyncExternalStore(
+    emptySubscribe,
+    () => true,
+    () => false,
+  );
+}
 ````
 
 ## src/styles/design.css

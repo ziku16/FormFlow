@@ -107,30 +107,60 @@ export async function parsePdfFile(file: File): Promise<ParsedPdfResult> {
     };
   });
 
-  // Group into up to 3 sections
-  const chunkSize = Math.max(1, Math.ceil(extractedFields.length / 3));
-  const sections: SampleSection[] = [
-    {
-      id: "section-1",
-      title: "General Information",
-      fields: extractedFields.slice(0, chunkSize),
-    },
-  ];
-
-  if (extractedFields.length > chunkSize) {
-    sections.push({
-      id: "section-2",
-      title: "Details & Options",
-      fields: extractedFields.slice(chunkSize, chunkSize * 2),
-    });
+  // Attempt server AI analysis endpoint if available in browser
+  let sections: SampleSection[] = [];
+  try {
+    if (typeof window !== "undefined") {
+      const res = await fetch("/api/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(5000),
+        body: JSON.stringify({
+          filename,
+          fields: extractedFields.map((f) => ({
+            name: f.pdfName,
+            type: f.type,
+            required: f.required,
+            options: f.type === "dropdown" ? f.options : undefined,
+          })),
+        }),
+      });
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data?.sections) && data.sections.length > 0) {
+          sections = data.sections;
+        }
+      }
+    }
+  } catch {
+    // Fallback to local grouping
   }
 
-  if (extractedFields.length > chunkSize * 2) {
-    sections.push({
-      id: "section-3",
-      title: "Confirmations",
-      fields: extractedFields.slice(chunkSize * 2),
-    });
+  if (sections.length === 0) {
+    const chunkSize = Math.max(1, Math.ceil(extractedFields.length / 3));
+    sections = [
+      {
+        id: "section-1",
+        title: "General Information",
+        fields: extractedFields.slice(0, chunkSize),
+      },
+    ];
+
+    if (extractedFields.length > chunkSize) {
+      sections.push({
+        id: "section-2",
+        title: "Details & Options",
+        fields: extractedFields.slice(chunkSize, chunkSize * 2),
+      });
+    }
+
+    if (extractedFields.length > chunkSize * 2) {
+      sections.push({
+        id: "section-3",
+        title: "Confirmations",
+        fields: extractedFields.slice(chunkSize * 2),
+      });
+    }
   }
 
   const formSchema: SampleForm = {

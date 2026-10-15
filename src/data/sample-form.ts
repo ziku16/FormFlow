@@ -4,6 +4,7 @@ export type SampleTextField = {
   label: string;
   type: "text";
   required: boolean;
+  hint?: string;
 };
 export type SampleCheckboxField = {
   id: string;
@@ -11,6 +12,7 @@ export type SampleCheckboxField = {
   label: string;
   type: "checkbox";
   required: boolean;
+  hint?: string;
 };
 export type SampleDropdownField = {
   id: string;
@@ -19,6 +21,7 @@ export type SampleDropdownField = {
   type: "dropdown";
   required: boolean;
   options: readonly string[];
+  hint?: string;
 };
 export type SampleField =
   SampleTextField | SampleCheckboxField | SampleDropdownField;

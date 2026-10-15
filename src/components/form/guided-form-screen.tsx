@@ -17,6 +17,7 @@ import { Stepper } from "@/components/layout/stepper";
 import { SampleDocumentPreview } from "@/components/pdf/sample-document-preview";
 import { useForm, originalSampleNames } from "@/features/form/form-context";
 import { cn } from "@/lib/cn";
+import { useIsMounted } from "@/lib/use-mounted";
 
 const sectionTitles = [
   "First, a little about you.",
@@ -33,6 +34,7 @@ const sectionDescriptions = [
 export function GuidedFormScreen() {
   const router = useRouter();
   const {
+    mode,
     activeForm,
     answers,
     activeSection,
@@ -161,11 +163,15 @@ export function GuidedFormScreen() {
     }
   }
 
-  const sectionTabs = [
-    { id: "0", label: "Personal details" },
-    { id: "1", label: "Study plans" },
-    { id: "2", label: "Declarations" },
-  ];
+  const isMounted = useIsMounted();
+  if (!isMounted) {
+    return (
+      <section id="view-fill" className="view" aria-labelledby="fill-heading">
+        <Stepper current={2} />
+        <div className="workspace" style={{ minHeight: 600 }} />
+      </section>
+    );
+  }
 
   return (
     <section id="view-fill" className="view" aria-labelledby="fill-heading">
@@ -208,10 +214,14 @@ export function GuidedFormScreen() {
               </span>
             </div>
             <h2 id="section-heading">
-              {sectionTitles[activeSection] ?? activeForm.sections[activeSection]?.title}
+              {mode === "uploaded"
+                ? (activeForm.sections[activeSection]?.title ?? "Form Section")
+                : (sectionTitles[activeSection] ?? activeForm.sections[activeSection]?.title)}
             </h2>
             <p id="section-description">
-              {sectionDescriptions[activeSection] ?? "Please fill in each field as requested."}
+              {mode === "uploaded"
+                ? `Section ${activeSection + 1} of ${activeForm.sections.length} · Fill in each field to populate your original PDF.`
+                : (sectionDescriptions[activeSection] ?? "Please fill in each field as requested.")}
             </p>
             <div className="progress" style={{ marginTop: 17 }}>
               <span
@@ -222,7 +232,7 @@ export function GuidedFormScreen() {
           </CardHeader>
 
           <nav className="section-tabs" aria-label="Form sections">
-            {sectionTabs.map((tab, idx) => (
+            {activeForm.sections.map((tab, idx) => (
               <button
                 key={tab.id}
                 type="button"
@@ -231,7 +241,7 @@ export function GuidedFormScreen() {
                 onClick={() => handleTabClick(idx)}
               >
                 <b>{idx + 1}</b>
-                {activeForm.sections[idx]?.title ?? tab.label}
+                {tab.title}
               </button>
             ))}
           </nav>
@@ -254,12 +264,181 @@ export function GuidedFormScreen() {
                 </Notice>
               )}
 
-              {/* Section 0: Personal details */}
-              <fieldset
-                className="form-section"
-                data-section="0"
-                hidden={activeSection !== 0}
-              >
+              {mode === "uploaded" ? (
+                activeForm.sections.map((section, sIdx) => (
+                  <fieldset
+                    key={section.id}
+                    className="form-section"
+                    data-section={sIdx}
+                    hidden={activeSection !== sIdx}
+                  >
+                    <legend className="sr-only">{section.title}</legend>
+                    <div className="form-grid">
+                      {section.fields.map((field) => {
+                        const val = answers[field.id];
+                        const isError = Boolean(validationErrors[field.id]);
+                        const errorMsg = validationErrors[field.id];
+                        const isFull =
+                          field.type === "checkbox" ||
+                          field.label.length > 25 ||
+                          field.id.toLowerCase().includes("address");
+
+                        if (field.type === "checkbox") {
+                          return (
+                            <div key={field.id} className="field full">
+                              <label className="choice" htmlFor={field.id}>
+                                <input
+                                  id={field.id}
+                                  name={field.id}
+                                  type="checkbox"
+                                  checked={Boolean(val)}
+                                  onFocus={() => handleFieldFocus(field.id)}
+                                  onBlur={handleFieldBlur}
+                                  onChange={(e) =>
+                                    handleInputChange(field.id, e.target.checked)
+                                  }
+                                />
+                                <span>
+                                  <strong style={{ fontSize: 12 }}>
+                                    {useOriginalLabels ? field.pdfName : field.label}
+                                    {field.required && (
+                                      <span className="required">*</span>
+                                    )}
+                                  </strong>
+                                  {field.hint && (
+                                    <span className="hint">{field.hint}</span>
+                                  )}
+                                </span>
+                              </label>
+                              {isError && (
+                                <p id={`${field.id}-error`} className="field-error">
+                                  {errorMsg}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        if (
+                          field.type === "dropdown" &&
+                          field.options &&
+                          field.options.length > 0
+                        ) {
+                          return (
+                            <div
+                              key={field.id}
+                              className={cn("field", isFull && "full")}
+                            >
+                              <label htmlFor={field.id}>
+                                {useOriginalLabels ? field.pdfName : field.label}
+                                {field.required && (
+                                  <span className="required">*</span>
+                                )}
+                              </label>
+                              <select
+                                id={field.id}
+                                name={field.id}
+                                value={String(val ?? "")}
+                                required={field.required}
+                                aria-invalid={isError}
+                                aria-describedby={
+                                  field.hint ? `${field.id}-hint` : undefined
+                                }
+                                onFocus={() => handleFieldFocus(field.id)}
+                                onBlur={handleFieldBlur}
+                                onChange={(e) =>
+                                  handleInputChange(field.id, e.target.value)
+                                }
+                              >
+                                <option value="">Select an option…</option>
+                                {field.options.map((opt) => (
+                                  <option key={opt} value={opt}>
+                                    {opt}
+                                  </option>
+                                ))}
+                              </select>
+                              {field.hint && (
+                                <span id={`${field.id}-hint`} className="hint">
+                                  {field.hint}
+                                </span>
+                              )}
+                              {isError && (
+                                <p
+                                  id={`${field.id}-error`}
+                                  className="field-error"
+                                >
+                                  {errorMsg}
+                                </p>
+                              )}
+                            </div>
+                          );
+                        }
+
+                        const inputType =
+                          field.id.toLowerCase().includes("date") ||
+                          field.id.toLowerCase().includes("dob")
+                            ? "date"
+                            : field.id.toLowerCase().includes("email")
+                              ? "email"
+                              : field.id.toLowerCase().includes("phone") ||
+                                  field.id.toLowerCase().includes("tel")
+                                ? "tel"
+                                : "text";
+
+                        return (
+                          <div
+                            key={field.id}
+                            className={cn("field", isFull && "full")}
+                          >
+                            <label htmlFor={field.id}>
+                              {useOriginalLabels ? field.pdfName : field.label}
+                              {field.required && (
+                                <span className="required">*</span>
+                              )}
+                            </label>
+                            <input
+                              id={field.id}
+                              name={field.id}
+                              type={inputType}
+                              value={String(val ?? "")}
+                              required={field.required}
+                              aria-invalid={isError}
+                              aria-describedby={
+                                field.hint ? `${field.id}-hint` : undefined
+                              }
+                              onFocus={() => handleFieldFocus(field.id)}
+                              onBlur={handleFieldBlur}
+                              onChange={(e) =>
+                                handleInputChange(field.id, e.target.value)
+                              }
+                            />
+                            {field.hint && (
+                              <span id={`${field.id}-hint`} className="hint">
+                                {field.hint}
+                              </span>
+                            )}
+                            {isError && (
+                              <p
+                                id={`${field.id}-error`}
+                                className="field-error"
+                              >
+                                {errorMsg}
+                              </p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </fieldset>
+                ))
+              ) : (
+                <>
+                  {/* Section 0: Personal details */}
+                  <fieldset
+                    className="form-section"
+                    data-section="0"
+                    hidden={activeSection !== 0}
+                  >
                 <legend className="sr-only">Personal details</legend>
                 <div className="form-grid">
                   <div className="field">
@@ -674,12 +853,11 @@ export function GuidedFormScreen() {
                     />
                     <span>
                       <strong>
-                        I agree to application processing.
+                        I agree to document processing.
                         <span className="required">*</span>
                       </strong>
                       <span className="hint">
-                        I authorize Northbridge University to process these
-                        details for my application.
+                        I confirm and authorize processing these details for this document.
                       </span>
                     </span>
                   </label>
@@ -693,33 +871,38 @@ export function GuidedFormScreen() {
                 <div className="helpbox">
                   <strong>
                     <Icon name="shield" />
-                    You’re still in control
+                    You’re in control
                   </strong>
-                  Downloading a completed form doesn’t submit an application.
-                  You’ll send the PDF to the university yourself.
+                  Downloading a completed form prepares your filled PDF document.
+                  You will submit the file to your organization or institution directly.
                 </div>
               </fieldset>
+            </>
+          )}
 
-              <p className="hint" style={{ marginTop: 20 }}>
-                * Required in this sample form. Nothing is submitted from this
-                prototype.
-              </p>
-            </CardBody>
+          <p className="hint" style={{ marginTop: 20 }}>
+            {mode === "uploaded"
+              ? "* Required field. Your answers will populate directly into your original PDF."
+              : "* Required in this sample form. Nothing is submitted from this prototype."}
+          </p>
+        </CardBody>
 
-            <CardFooter>
-              <Button
-                variant="ghost"
-                id="form-back"
-                type="button"
-                onClick={handleBack}
-              >
-                Back
-              </Button>
-              <Button variant="primary" id="form-next" type="submit">
-                {activeSection === 2 ? "Review my answers" : "Continue"}
-                <Icon name="arrow" />
-              </Button>
-            </CardFooter>
+        <CardFooter>
+          <Button
+            variant="ghost"
+            id="form-back"
+            type="button"
+            onClick={handleBack}
+          >
+            Back
+          </Button>
+          <Button variant="primary" id="form-next" type="submit">
+            {activeSection === activeForm.sections.length - 1
+              ? "Review my answers"
+              : "Continue"}
+            <Icon name="arrow" />
+          </Button>
+        </CardFooter>
           </form>
         </Card>
       </div>

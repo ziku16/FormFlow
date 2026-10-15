@@ -12,6 +12,7 @@ import {
   displayValue,
   getFormErrors,
 } from "@/features/form/form-context";
+import { useIsMounted } from "@/lib/use-mounted";
 
 export function ReviewScreen() {
   const router = useRouter();
@@ -63,6 +64,16 @@ export function ReviewScreen() {
     }
 
     router.push("/download");
+  }
+
+  const isMounted = useIsMounted();
+  if (!isMounted) {
+    return (
+      <section id="view-review" className="view" aria-labelledby="review-heading">
+        <Stepper current={3} />
+        <div className="workspace" style={{ minHeight: 600 }} />
+      </section>
+    );
   }
 
   return (
