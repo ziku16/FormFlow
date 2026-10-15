@@ -10061,9 +10061,20 @@ export function ScreenNavigation({
 }: ScreenNavigationProps) {
   return (
     <header className="labbar">
-      <div className="labinner">
+      <div
+        className="labinner"
+        style={{
+          display: "flex",
+          justifyContent: "center",
+          alignItems: "center",
+        }}
+      >
         <span className="lab-label">FormFlow</span>
-        <nav className="viewnav" aria-label="Application screens">
+        <nav
+          className="viewnav"
+          aria-label="Application screens"
+          style={{ justifyContent: "center" }}
+        >
           {screenItems.map((item) => (
             <button
               key={item.id}
