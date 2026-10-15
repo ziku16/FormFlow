@@ -152,7 +152,7 @@ export function UploadCard() {
       </Link>
       <div className="trustline">
         <Icon name="lock" />
-        Your file stays in this browser tab · no account needed
+        Design demo · sample answers stay in this browser tab
       </div>
     </Card>
   );

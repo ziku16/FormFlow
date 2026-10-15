@@ -50,12 +50,16 @@ export async function validatePdfSelection(
     };
   }
   if (file.size > MAX_PDF_BYTES) {
+    const sizeDescription =
+      formatFileSize(file.size) === "10.00 MB"
+        ? "just over 10 MB"
+        : formatFileSize(file.size);
     return {
       ok: false,
       error: {
         code: "too-large",
         title: "A little too large for now.",
-        message: `${file.name} is ${formatFileSize(file.size)}. The limit is 10 MB. Choose a smaller fillable copy and keep its interactive fields intact.`,
+        message: `${file.name} is ${sizeDescription}. The limit is 10 MB. Choose a smaller fillable copy and keep its interactive fields intact.`,
       },
     };
   }
